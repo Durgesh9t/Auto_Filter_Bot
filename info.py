@@ -18,9 +18,9 @@ def is_enabled(value, default):
 # Bot Information Configuration
 # ============================
 SESSION = environ.get('SESSION', 'dreamxbotz_search')   # Session name for the bot
-API_ID = int(environ.get('API_ID', '')) # API ID from my.telegram.org
-API_HASH = environ.get('API_HASH', '')  # API Hash from my.telegram.org
-BOT_TOKEN = environ.get('BOT_TOKEN', "")    # Bot token from @BotFather
+API_ID = int(environ.get('API_ID', '21006440')) # API ID from my.telegram.org
+API_HASH = environ.get('API_HASH', 'f3b3fae13d20ab4b5f34ac3475749c20')  # API Hash from my.telegram.org
+BOT_TOKEN = environ.get('BOT_TOKEN', "8503469545:AAGJmr8ArJOlfg73556_zpBPvqZ_PDuHT5k")    # Bot token from @BotFather
 
 # ============================
 # Bot Settings Configuration
@@ -55,8 +55,8 @@ reqst_channel = environ.get('REQST_CHANNEL_ID', '-1002871024004')  # Request cha
 SUPPORT_CHAT = environ.get('SUPPORT_CHAT', 'https://t.me/+7BlRkz8mo6c1OWZl')  # Support group link (make sure bot is admin)
 
 # FORCE_SUB 
-auth_req_channels = environ.get("AUTH_REQ_CHANNELS", -1002628501336 -1002481569627 -1002414133579")# requst to join Channel for force sub (make sure bot is admin) only for bot ADMINS  
-auth_channels     = environ.get("AUTH_CHANNELS", "-100")# Channels for force sub (make sure bot is admin)
+auth_req_channels = environ.get("AUTH_REQ_CHANNELS", "-1002628501336 -1002481569627 -1002414133579")# requst to join Channel for force sub (make sure bot is admin) only for bot ADMINS  
+auth_channels     = environ.get("AUTH_CHANNELS", "-1002628501336 -1002481569627 -1002414133579")# Channels for force sub (make sure bot is admin)
 
 # ============================
 # Payment Configuration
