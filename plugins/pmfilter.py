@@ -1399,14 +1399,9 @@ async def cb_handler(client: Client, query: CallbackQuery):
             user_id = query.from_user.id
             username = query.from_user.mention
             log_msg = await client.send_cached_media(chat_id=BIN_CHANNEL, file_id=file_id,)
-
-            raw_name = get_name(log_msg)
-            safe_name = raw_name if raw_name is not None else "Unknown_File"
-            fileName = safe_name
-            encoded_name = quote_plus(safe_name)
-
-            dreamx_stream = f"{URL}watch/{str(log_msg.id)}/{encoded_name}?hash={get_hash(log_msg)}"
-            dreamx_download = f"{URL}{str(log_msg.id)}/{encoded_name}?hash={get_hash(log_msg)}"
+            fileName = {quote_plus(get_name(log_msg))}
+            dreamx_stream = f"{URL}watch/{str(log_msg.id)}/{quote_plus(get_name(log_msg))}?hash={get_hash(log_msg)}"
+            dreamx_download = f"{URL}{str(log_msg.id)}/{quote_plus(get_name(log_msg))}?hash={get_hash(log_msg)}"
             await query.answer(MSG_ALRT)
             await asyncio.sleep(1)
             await log_msg.reply_text(
@@ -1427,15 +1422,8 @@ async def cb_handler(client: Client, query: CallbackQuery):
                     ]
                 ])
             )
-
-            async def _delete_msg(msg, delay):
-                await asyncio.sleep(delay)
-                try:
-                    await msg.delete()
-                except:
-                    pass
-
-            asyncio.create_task(_delete_msg(dreamcinezone, DELETE_TIME))
+            await asyncio.sleep(DELETE_TIME)
+            await dreamcinezone.delete()
             return
         except Exception as e:
             print(e)
@@ -1453,15 +1441,8 @@ async def cb_handler(client: Client, query: CallbackQuery):
                 [InlineKeyboardButton("🚀 Buy Premium 🚀", callback_data="premium_info")]
             ])
         )
-
-        async def _delete_msg(msg, delay):
-            await asyncio.sleep(delay)
-            try:
-                await msg.delete()
-            except:
-                pass
-
-        asyncio.create_task(_delete_msg(dreamcinezone, DELETE_TIME))
+        await asyncio.sleep(DELETE_TIME)
+        await dreamcinezone.delete()
 
 
     elif query.data == "pagesn1":
@@ -1587,16 +1568,8 @@ async def cb_handler(client: Client, query: CallbackQuery):
                         InlineKeyboardButton("🚀 Buy Premium 🚀", callback_data="premium_info")
                     ]])
                 )
-
-                async def _delete_msg(m, delay):
-                    await asyncio.sleep(delay)
-                    try:
-                        await m.delete()
-                    except:
-                        pass
-
-                asyncio.create_task(_delete_msg(msg, DELETE_TIME))
-                return
+                await asyncio.sleep(DELETE_TIME)
+                return await msg.delete()
         except Exception as e:
             logging.exception("Error in give_trial callback")
 
