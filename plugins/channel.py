@@ -126,12 +126,17 @@ def schedule_update(bot, base_name, delay=5):
     if handle := pending_updates.get(base_name):
         if not handle.cancelled():
             handle.cancel()
-    
-    loop = asyncio.get_event_loop()
-    pending_updates[base_name] = loop.call_later(
-        delay,
-        lambda: asyncio.create_task(update_movie_message(bot, base_name))
-    )
+
+    async def _delayed_task():
+        try:
+            await asyncio.sleep(delay)
+            await update_movie_message(bot, base_name)
+        finally:
+            if pending_updates.get(base_name) == task:
+                pending_updates.pop(base_name, None)
+
+    task = asyncio.create_task(_delayed_task())
+    pending_updates[base_name] = task
 def extract_media_info(filename: str, caption: str):
     filename = normalize(clean_mentions_links(filename).title())
     caption_clean = clean_mentions_links(caption).lower() if caption else ""
@@ -457,39 +462,43 @@ async def update_movie_message(bot, base_name):
                 continue
 
             msg_id = message_ids[ch_str]
-            try:
-                if is_photo:
-                    await bot.edit_message_caption(
-                        chat_id=channel_id,
-                        message_id=msg_id,
-                        caption=text,
-                        reply_markup=buttons,
-                        parse_mode=enums.ParseMode.HTML
-                    )
-                else:
-                    await bot.edit_message_text(
-                        chat_id=channel_id,
-                        message_id=msg_id,
-                        text=text,
-                        reply_markup=buttons,
-                        parse_mode=enums.ParseMode.HTML,
-                        invert_media=ABOVE_PREVIEW,
-                        disable_web_page_preview=not LINK_PREVIEW
-                    )
-                all_failed = False
-            except (MessageIdInvalid, MessageNotModified) as e:
-                logger.warning(f"Message update skipped for channel {channel_id} due to error: {e}")
-                all_failed = False
-                pass
-            except Exception:
+
+            max_retries = 3
+            for attempt in range(max_retries):
                 try:
-                    await bot.delete_messages(
-                        chat_id=channel_id,
-                        message_ids=msg_id
-                    )
+                    if is_photo:
+                        await bot.edit_message_caption(
+                            chat_id=channel_id,
+                            message_id=msg_id,
+                            caption=text,
+                            reply_markup=buttons,
+                            parse_mode=enums.ParseMode.HTML
+                        )
+                    else:
+                        await bot.edit_message_text(
+                            chat_id=channel_id,
+                            message_id=msg_id,
+                            text=text,
+                            reply_markup=buttons,
+                            parse_mode=enums.ParseMode.HTML,
+                            invert_media=ABOVE_PREVIEW,
+                            disable_web_page_preview=not LINK_PREVIEW
+                        )
+                    all_failed = False
+                    break
+                except FloodWait as e:
+                    wait_time = e.value + 2
+                    await asyncio.sleep(wait_time)
+                except (MessageIdInvalid, MessageNotModified) as e:
+                    logger.warning(f"Message update skipped for channel {channel_id} due to error: {e}")
+                    all_failed = False
+                    break
                 except Exception as e:
-                    logger.error(f"Error during message deletion in recovery for channel {channel_id}: {e}")
-                    pass
+                    logger.error(f"Unexpected error updating message {msg_id} in channel {channel_id}: {e}")
+                    # We log the error but do not delete the message.
+                    # Setting all_failed=False ensures we don't treat network hiccups as total failure
+                    all_failed = False
+                    break
 
         if all_failed:
             await db.movie_updates.update_one(
