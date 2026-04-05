@@ -6,7 +6,7 @@ from collections import defaultdict
 from plugins.Dreamxfutures.Imdbposter import get_movie_detailsx, fetch_image, get_movie_details
 from database.users_chats_db import db
 from pyrogram import Client, filters, enums
-from info import CHANNELS, MOVIE_UPDATE_CHANNEL, LINK_PREVIEW, ABOVE_PREVIEW, BAD_WORDS, LANDSCAPE_POSTER, TMDB_POSTER
+from info import CHANNELS, MOVIE_UPDATE_CHANNELS, LINK_PREVIEW, ABOVE_PREVIEW, BAD_WORDS, LANDSCAPE_POSTER, TMDB_POSTER
 from Script import script
 from database.ia_filterdb import save_file
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
@@ -328,7 +328,7 @@ async def _process_with_lock(bot, filename, caption, media_info, base_name, proc
             "year": media_info["year"] or details.get("year"),
             "tag": media_info["tag"],
             "ott_platform": media_info["ott_platform"],
-            "message_id": None,
+            "message_ids": {},
             "is_photo": False,
             "error_tmdb": error_tmdb,
             "is_backdrop": details.get("backdrop_url")
@@ -359,62 +359,91 @@ async def _process_with_lock(bot, filename, caption, media_info, base_name, proc
         schedule_update(bot, base_name)
 
 async def send_movie_update(bot, base_name):
-    max_retries = 3
-    base_delay = 5
-    for attempt in range(max_retries):
-        try:
-            movie_doc = await db.movie_updates.find_one({"_id": base_name})
-            if not movie_doc:
-                return None
+    movie_doc = await db.movie_updates.find_one({"_id": base_name})
+    if not movie_doc:
+        return None
 
-            text = generate_movie_message(movie_doc, base_name)
-            buttons = InlineKeyboardMarkup([[
-                InlineKeyboardButton(
-                    'ɢᴇᴛ ғɪʟᴇs',
-                    url=f"https://t.me/{temp.U_NAME}?start=getfile-{base_name.replace(' ', '-')}"
-                )
-            ]])
-            size=(2560, 1440) if LANDSCAPE_POSTER and TMDB_POSTER and movie_doc.get("is_backdrop") and not movie_doc.get("error_tmdb") else (853, 1280)
-            if movie_doc.get("poster_url") and not LINK_PREVIEW:
-                resized_poster = await fetch_image(movie_doc["poster_url"], size)
-                msg = await bot.send_photo(
-                    chat_id=MOVIE_UPDATE_CHANNEL,
-                    photo=resized_poster,
-                    caption=text,
-                    reply_markup=buttons,
-                    parse_mode=enums.ParseMode.HTML
-                )
-                is_photo = True
-            else:
-                send_params = {
-                    "chat_id": MOVIE_UPDATE_CHANNEL,
-                    "text": text,
-                    "reply_markup": buttons,
-                    "parse_mode": enums.ParseMode.HTML
-                }
-                if movie_doc.get("poster_url") and LINK_PREVIEW:
-                    send_params["invert_media"] = ABOVE_PREVIEW
-                msg = await bot.send_message(**send_params)
-                is_photo = False
+    # Migration logic for existing records
+    message_ids = movie_doc.get("message_ids", {})
+    if not message_ids and movie_doc.get("message_id"):
+        # Assuming the old message_id belongs to the first channel in MOVIE_UPDATE_CHANNELS
+        if MOVIE_UPDATE_CHANNELS:
+            message_ids[str(MOVIE_UPDATE_CHANNELS[0])] = movie_doc["message_id"]
 
-            await db.movie_updates.update_one(
-                {"_id": base_name},
-                {"$set": {"message_id": msg.id, "is_photo": is_photo}}
-            )
-            return msg
-        except FloodWait as e:
-            wait_time = e.value + 2
-            await asyncio.sleep(wait_time)
-        except Exception as e:
-            logger.error(f"Failed to send movie update: {e}")
-            break
-    return None
+    text = generate_movie_message(movie_doc, base_name)
+    buttons = InlineKeyboardMarkup([[
+        InlineKeyboardButton(
+            'ɢᴇᴛ ғɪʟᴇs',
+            url=f"https://t.me/{temp.U_NAME}?start=getfile-{base_name.replace(' ', '-')}"
+        )
+    ]])
+    size = (2560, 1440) if LANDSCAPE_POSTER and TMDB_POSTER and movie_doc.get("is_backdrop") and not movie_doc.get("error_tmdb") else (853, 1280)
+
+    is_photo = movie_doc.get("is_photo", False)
+    resized_poster = None
+    if movie_doc.get("poster_url") and not LINK_PREVIEW:
+        resized_poster = await fetch_image(movie_doc["poster_url"], size)
+
+    for chat_id in MOVIE_UPDATE_CHANNELS:
+        if str(chat_id) in message_ids:
+            continue
+
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                if resized_poster:
+                    msg = await bot.send_photo(
+                        chat_id=chat_id,
+                        photo=resized_poster,
+                        caption=text,
+                        reply_markup=buttons,
+                        parse_mode=enums.ParseMode.HTML
+                    )
+                    is_photo = True
+                else:
+                    send_params = {
+                        "chat_id": chat_id,
+                        "text": text,
+                        "reply_markup": buttons,
+                        "parse_mode": enums.ParseMode.HTML
+                    }
+                    if movie_doc.get("poster_url") and LINK_PREVIEW:
+                        send_params["invert_media"] = ABOVE_PREVIEW
+                    msg = await bot.send_message(**send_params)
+                    is_photo = False
+
+                message_ids[str(chat_id)] = msg.id
+                break
+            except FloodWait as e:
+                await asyncio.sleep(e.value + 2)
+            except Exception as e:
+                logger.error(f"Failed to send movie update to {chat_id}: {e}")
+                break
+
+    await db.movie_updates.update_one(
+        {"_id": base_name},
+        {"$set": {"message_ids": message_ids, "is_photo": is_photo}}
+    )
+    return message_ids
 
 async def update_movie_message(bot, base_name):
     try:
         movie_doc = await db.movie_updates.find_one({"_id": base_name})
         if not movie_doc:
             return
+
+        message_ids = movie_doc.get("message_ids", {})
+        # Migration logic
+        if not message_ids and movie_doc.get("message_id"):
+            if MOVIE_UPDATE_CHANNELS:
+                message_ids[str(MOVIE_UPDATE_CHANNELS[0])] = movie_doc["message_id"]
+
+        # Check if all desired channels are present
+        if any(str(cid) not in message_ids for cid in MOVIE_UPDATE_CHANNELS):
+            await send_movie_update(bot, base_name)
+            # Re-fetch after update to get new message_ids
+            movie_doc = await db.movie_updates.find_one({"_id": base_name})
+            message_ids = movie_doc.get("message_ids", {})
 
         text = generate_movie_message(movie_doc, base_name)
         buttons = InlineKeyboardMarkup([[
@@ -423,51 +452,54 @@ async def update_movie_message(bot, base_name):
                 url=f"https://t.me/{temp.U_NAME}?start=getfile-{base_name.replace(' ', '-')}"
             )
         ]])
-
-        message_id = movie_doc.get("message_id")
         is_photo = movie_doc.get("is_photo", False)
 
-        if not message_id:
-            await send_movie_update(bot, base_name)
-            return
+        updated_message_ids = message_ids.copy()
+        need_db_update = False
 
-        try:
-            if is_photo:
-                await bot.edit_message_caption(
-                    chat_id=MOVIE_UPDATE_CHANNEL,
-                    message_id=message_id,
-                    caption=text,
-                    reply_markup=buttons,
-                    parse_mode=enums.ParseMode.HTML
-                )
-            else:
-                await bot.edit_message_text(
-                    chat_id=MOVIE_UPDATE_CHANNEL,
-                    message_id=message_id,
-                    text=text,
-                    reply_markup=buttons,
-                    parse_mode=enums.ParseMode.HTML,
-                    invert_media=ABOVE_PREVIEW,
-                    disable_web_page_preview=not LINK_PREVIEW
-                )
-            return
-        except (MessageIdInvalid, MessageNotModified) as e:
-            logger.warning(f"Message update skipped due to error: {e}")
-            pass
-        except Exception:
+        for chat_id_str, message_id in message_ids.items():
+            chat_id = int(chat_id_str)
             try:
-                await bot.delete_messages(
-                    chat_id=MOVIE_UPDATE_CHANNEL,
-                    message_ids=message_id
-                )
-                await db.movie_updates.update_one(
-                    {"_id": base_name},
-                    {"$set": {"message_id": None, "is_photo": False}}
-                )
-            except Exception as e:
-                logger.error(f"Error during message deletion/update in recovery: {e}")
+                if is_photo:
+                    await bot.edit_message_caption(
+                        chat_id=chat_id,
+                        message_id=message_id,
+                        caption=text,
+                        reply_markup=buttons,
+                        parse_mode=enums.ParseMode.HTML
+                    )
+                else:
+                    await bot.edit_message_text(
+                        chat_id=chat_id,
+                        message_id=message_id,
+                        text=text,
+                        reply_markup=buttons,
+                        parse_mode=enums.ParseMode.HTML,
+                        invert_media=ABOVE_PREVIEW,
+                        disable_web_page_preview=not LINK_PREVIEW
+                    )
+            except MessageNotModified:
                 pass
+            except (MessageIdInvalid, FloodWait, Exception) as e:
+                if isinstance(e, FloodWait):
+                    await asyncio.sleep(e.value + 2)
+                    # Retry once or just skip for now, let next schedule handle it
+                    continue
+
+                logger.warning(f"Failed to update message in {chat_id}: {e}")
+                # If message is invalid, it might be deleted. Remove and try re-sending later.
+                if isinstance(e, MessageIdInvalid):
+                    updated_message_ids.pop(chat_id_str, None)
+                    need_db_update = True
+
+        if need_db_update:
+            await db.movie_updates.update_one(
+                {"_id": base_name},
+                {"$set": {"message_ids": updated_message_ids}}
+            )
+            # Trigger re-send for missing ones
             await send_movie_update(bot, base_name)
+
     except Exception as e:
         logger.error(f"Failed to update movie message for {base_name}: {e}")
 
