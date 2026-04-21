@@ -113,6 +113,7 @@ OTT_PLATFORMS = [
     "MX Player",
     "SonyLIV",
     "Sun NXT",
+    "Stage",
     "Voot",
     "Zee5",
 
